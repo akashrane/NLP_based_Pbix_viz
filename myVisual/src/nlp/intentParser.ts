@@ -38,26 +38,51 @@ export function parseIntent(query: string, availableFields: FieldMeta[]): Intent
         if (byIndex !== -1 && byIndex < tokens.length - 1) {
             const yTokens = tokens.slice(0, byIndex);
             const xTokens = tokens.slice(byIndex + 1);
-            
             const yClean = yTokens.filter(t => t !== 'of');
-            intent.yField = matchField(yClean, availableFields) || undefined;
-            intent.xField = matchField(xTokens, availableFields) || undefined;
+
+            // FIX 1: enforce type constraints when splitting on "by" so that the grouping
+            // axis (xField) always resolves to a category column and the numeric axis
+            // (yField) always resolves to a measure column.  Try the typed pool first,
+            // then fall back to the full pool so a near-match is never missed entirely.
+            // Previously both calls searched ALL availableFields, making it possible for
+            // a measure to land in xField or a category to land in yField.
+            intent.xField = matchField(xTokens, availableFields.filter(f => f.category === 'category'))
+                         || matchField(xTokens, availableFields) || undefined;
+            intent.yField = matchField(yClean, availableFields.filter(f => f.category === 'measure'))
+                         || matchField(yClean, availableFields) || undefined;
         } else {
             intent.xField = matchField(tokens, availableFields.filter(f => f.category === 'category')) || undefined;
             intent.yField = matchField(tokens, availableFields.filter(f => f.category === 'measure')) || undefined;
         }
     }
-    
-    // Sensible fallbacks: if user didn't specify exactly, bind the first available matching types
-    if (!intent.xField) {
-        intent.xField = availableFields.find(f => f.category === 'category');
-    }
-    if (!intent.yField) {
-        intent.yField = availableFields.find(f => f.category === 'measure');
+
+    // FIX 2: only apply xField / yField fallbacks when the user did NOT make an explicit
+    // "X by Y" request.  If they said "plot moon phase by instructor" and "moon phase"
+    // found no match, that is a missing-field error — not a signal to silently substitute
+    // the first available measure.  Leaving yField as undefined lets visual.ts surface the
+    // friendly "I don't see a field matching…" error panel message.
+    // Also skip for histogram, which uses valueField only — injecting a random
+    // category/measure into xField/yField would pollute the explain-chip.
+    const usedByKeyword = byIndex !== -1 && byIndex < tokens.length - 1;
+    if (intent.chartType !== 'histogram' && !usedByKeyword) {
+        if (!intent.xField) {
+            intent.xField = availableFields.find(f => f.category === 'category');
+        }
+        if (!intent.yField) {
+            intent.yField = availableFields.find(f => f.category === 'measure');
+        }
     }
     if (!intent.valueField) {
-        // For histogram, maybe valueField could be a grouping or measure
-        intent.valueField = availableFields.find(f => f.category === 'measure' || f.category === 'category');
+        // BUG FIX: previously accepted any field type (measure OR category) as the
+        // histogram value, so a text column like "Department" could be selected —
+        // the histogram renderer would then find zero numeric values and show an error.
+        // Restrict the fallback to measure columns only (numeric by definition).
+        intent.valueField = availableFields.find(f => f.category === 'measure');
+    }
+    
+    // Check for explicit aggregation
+    if (lowerQuery.match(/\b(average|mean|avg)\b/)) {
+        intent.aggHints = 'mean';
     }
     
     return intent;

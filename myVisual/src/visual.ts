@@ -24,13 +24,17 @@ export class Visual implements IVisual {
     private target: HTMLElement;
     private formattingSettings: VisualFormattingSettingsModel;
     private formattingSettingsService: FormattingSettingsService;
+    private host: powerbi.extensibility.visual.IVisualHost;
     
     private inputBar: InputBar;
     private errorPanel: ErrorPanel;
     private chartContainer: HTMLElement;
+    private explainChip: HTMLElement;
     private lastDataView: DataView;
+    private themeColor: string = "#0078d4";
 
     constructor(options: VisualConstructorOptions) {
+        this.host = options.host;
         this.formattingSettingsService = new FormattingSettingsService();
         this.target = options.element;
         this.target.classList.add("nlviz");
@@ -49,6 +53,14 @@ export class Visual implements IVisual {
         this.chartContainer.classList.add("nlviz-chart-container");
         body.appendChild(this.chartContainer);
 
+        this.explainChip = document.createElement("div");
+        this.explainChip.classList.add("nlviz-explain-chip");
+        this.explainChip.style.display = "none";
+        this.explainChip.style.fontSize = "12px";
+        this.explainChip.style.color = "#666";
+        this.explainChip.style.marginTop = "8px";
+        body.appendChild(this.explainChip);
+
         // Bind events
         this.inputBar.onSubmit = (query: string) => {
             this.handleQuery(query);
@@ -58,20 +70,27 @@ export class Visual implements IVisual {
     public update(options: VisualUpdateOptions) {
         this.formattingSettings = this.formattingSettingsService.populateFormattingSettingsModel(VisualFormattingSettingsModel, options.dataViews[0]);
         this.lastDataView = options.dataViews[0] || null;
+        if (this.host.colorPalette) {
+            this.themeColor = this.host.colorPalette.getColor("0").value || "#0078d4";
+        }
     }
 
     private async handleQuery(query: string) {
         if (!this.lastDataView || !this.lastDataView.metadata || !this.lastDataView.metadata.columns.length) {
             this.errorPanel.show("No data bound to the visual yet. Please drag fields into the Category and Measure wells.");
             this.chartContainer.style.display = "none";
+            this.explainChip.style.display = "none";
             return;
         }
 
-        // Build available fields array
+        // Build available fields array.
+        // Use c.isMeasure (authoritative Power BI API flag) rather than inspecting
+        // c.roles.category, which only checks one side of the coin and can mis-classify
+        // fields that have neither role (or both roles) as 'measure' by default.
         const availableFields: FieldMeta[] = this.lastDataView.metadata.columns.map(c => ({
             queryName: c.queryName,
             displayName: c.displayName,
-            category: c.roles && c.roles.category ? 'category' : 'measure',
+            category: c.isMeasure ? 'measure' : 'category',
             type: c.type ? Object.keys(c.type)[0] : 'unknown'
         }));
 
@@ -93,6 +112,7 @@ export class Visual implements IVisual {
         if (!intent || intent.chartType === 'unknown') {
             this.errorPanel.show(`I couldn't tell what kind of chart you want for "${query}". Try words like distribution, trend, or compare.`);
             this.chartContainer.style.display = "none";
+            this.explainChip.style.display = "none";
             return;
         }
 
@@ -100,12 +120,21 @@ export class Visual implements IVisual {
         if (requiredFieldMissing) {
             this.errorPanel.show(`I don't see matching fields to draw a ${intent.chartType}. Fields in this visual right now: ${availableFields.map(f=>f.displayName).join(", ")}`);
             this.chartContainer.style.display = "none";
+            this.explainChip.style.display = "none";
             return;
         }
 
         // Phase 5: Render Chart
         this.errorPanel.hide();
         this.chartContainer.style.display = "block";
+        this.explainChip.style.display = "block";
+        
+        let explainText = `ℹ️ intent: ${intent.chartType}`;
+        if (intent.xField) explainText += ` • x: ${intent.xField.displayName}`;
+        if (intent.yField) explainText += ` • y: ${intent.yField.displayName}`;
+        if (intent.valueField) explainText += ` • value: ${intent.valueField.displayName}`;
+        if (intent.aggHints) explainText += ` • agg: ${intent.aggHints}`;
+        this.explainChip.textContent = explainText;
         
         try {
             this.chartContainer.textContent = "";
@@ -116,7 +145,7 @@ export class Visual implements IVisual {
             } else if (intent.chartType === 'pie') {
                 renderPieChart(this.chartContainer, this.lastDataView, intent.xField as FieldMeta, intent.yField as FieldMeta);
             } else {
-                renderBarChart(this.chartContainer, this.lastDataView, intent.xField as FieldMeta, intent.yField as FieldMeta);
+                renderBarChart(this.chartContainer, this.lastDataView, intent.xField as FieldMeta, intent.yField as FieldMeta, intent, this.themeColor);
             }
         } catch (e) {
             console.error(e);

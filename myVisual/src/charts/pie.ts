@@ -1,14 +1,15 @@
 import * as d3 from "d3";
 import { FieldMeta } from "../nlp/types";
 import powerbi from "powerbi-visuals-api";
+import { createTooltip, TooltipRow } from "../ui/tooltip";
 
 export function renderPieChart(container: HTMLElement, dataView: powerbi.DataView, xField: FieldMeta, yField: FieldMeta) {
-    while (container.firstChild) container.removeChild(container.firstChild);
+    while (container.firstChild) { container.removeChild(container.firstChild); }
 
     let cat = dataView.categorical.categories?.find(c => c.source.queryName === xField?.queryName);
     let msr = dataView.categorical.values?.find(v => v.source.queryName === yField?.queryName);
-    if (!cat && dataView.categorical.categories) cat = dataView.categorical.categories[0];
-    if (!msr && dataView.categorical.values) msr = dataView.categorical.values[0];
+    if (!cat && dataView.categorical.categories) { cat = dataView.categorical.categories[0]; }
+    if (!msr && dataView.categorical.values) { msr = dataView.categorical.values[0]; }
 
     if (!cat?.values || !msr?.values) {
         const err = document.createElement("p");
@@ -17,14 +18,17 @@ export function renderPieChart(container: HTMLElement, dataView: powerbi.DataVie
         return;
     }
 
-    const data: Record<string, number> = {};
+    const dataMap: Record<string, number> = {};
     for (let i = 0; i < cat.values.length; i++) {
         const xVal = String(cat.values[i]);
         const yVal = Number(msr.values[i]);
         if (!isNaN(yVal)) {
-            data[xVal] = (data[xVal] || 0) + yVal;
+            dataMap[xVal] = (dataMap[xVal] || 0) + yVal;
         }
     }
+
+    const total = Object.values(dataMap).reduce((a, b) => a + b, 0);
+    const tt = createTooltip(container);
 
     const margin = 20;
     const width = container.clientWidth;
@@ -36,37 +40,56 @@ export function renderPieChart(container: HTMLElement, dataView: powerbi.DataVie
         .attr("width", width)
         .attr("height", height)
         .append("g")
-        .attr("transform", `translate(${width / 2},${height / 2})`);
+        .attr("transform", "translate(" + (width / 2) + "," + (height / 2) + ")");
 
-    const color = d3.scaleOrdinal()
-        .domain(Object.keys(data))
+    const color = d3.scaleOrdinal<string>()
+        .domain(Object.keys(dataMap))
         .range(d3.schemeTableau10);
 
-    const pie = d3.pie<any>().value(d => d[1]);
-    const dataReady = pie(Object.entries(data));
+    const pie = d3.pie<[string, number]>().value(d => d[1]);
+    const dataReady = pie(Object.entries(dataMap) as [string, number][]);
 
-    const arc = d3.arc<d3.PieArcDatum<any>>()
+    const arc = d3.arc<d3.PieArcDatum<[string, number]>>()
         .innerRadius(0)
         .outerRadius(radius);
 
-    svg.selectAll('path')
-        .data(dataReady)
-        .enter()
-        .append('path')
-        .attr('d', arc)
-        .attr('fill', d => color(d.data[0]) as string)
-        .attr("stroke", "white")
-        .style("stroke-width", "2px");
+    const arcHover = d3.arc<d3.PieArcDatum<[string, number]>>()
+        .innerRadius(0)
+        .outerRadius(radius + 8);
 
-    // Add labels with the name and number
-    svg.selectAll('text')
+    svg.selectAll("path")
         .data(dataReady)
         .enter()
-        .append('text')
-        .text(d => `${d.data[0]}: ${d.data[1]}`)
-        .attr('transform', d => `translate(${arc.centroid(d)})`)
-        .style('text-anchor', 'middle')
-        .style('font-size', '12px')
-        .style('fill', '#fff')
-        .style('pointer-events', 'none'); // Prevents text from interfering with any hover events later
+        .append("path")
+        .attr("d", d => arc(d))
+        .attr("fill", d => color(d.data[0]))
+        .attr("stroke", "white")
+        .style("stroke-width", "2px")
+        .style("cursor", "pointer")
+        .on("mouseover", (event, d) => {
+            d3.select(event.currentTarget as SVGPathElement).attr("d", arcHover(d));
+            const pct = total > 0 ? ((d.data[1] / total) * 100).toFixed(1) : "0.0";
+            const rows: TooltipRow[] = [
+                { label: xField.displayName + ":", value: String(d.data[0]) },
+                { label: yField.displayName + ":", value: Number(d.data[1]).toLocaleString(undefined, { maximumFractionDigits: 2 }) },
+                { label: "Share:", value: pct + "%" },
+            ];
+            tt.show(event as MouseEvent, rows);
+        })
+        .on("mousemove", (event) => { tt.move(event as MouseEvent); })
+        .on("mouseleave", (event, d) => {
+            d3.select(event.currentTarget as SVGPathElement).attr("d", arc(d));
+            tt.hide();
+        });
+
+    svg.selectAll("text")
+        .data(dataReady)
+        .enter()
+        .append("text")
+        .text(d => d.data[0] + ": " + d.data[1])
+        .attr("transform", d => "translate(" + arc.centroid(d) + ")")
+        .style("text-anchor", "middle")
+        .style("font-size", "12px")
+        .style("fill", "#fff")
+        .style("pointer-events", "none");
 }
