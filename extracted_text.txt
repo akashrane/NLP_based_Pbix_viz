@@ -1,0 +1,23 @@
+Take-Home Assignment: Natural Language to Chart Power BI Custom Visual
+Overview: Build a Power BI custom visual that accepts a text query from the user and renders an appropriate chart based on the intent of that query. For example, a query like "what's the distribution of sales?" should produce a histogram over the sales field.
+
+Objectives
+Build and package a Power BI custom visual using the Power BI Visuals SDK
+Parse natural language input and map it to a chart intent (chart type + relevant field)
+Render the resulting chart inside the visual using the data bound to it
+
+Requirements
+Input
+Expose a text input control inside the visual where the user can type a question in plain English
+The visual should be bound to one or more data fields from the Power BI data model
+Query understanding
+Parse the query to identify chart type intent (distribution → histogram, trend over time → line, comparison across categories → bar, composition → pie, etc.)
+Identify which field or fields from the bound data the query refers to
+Rule-based or keyword matching is acceptable. Using an LLM API (you are free to create one through Google Studio and use the Gemini API) is allowed.
+Output
+Render the corresponding chart after the user submits the query
+Support at most three chart types (for example: histogram, bar, line)
+Show a clear message if the query cannot be understood or the referenced field is not present in the bound data
+
+Relevant files are within this Drive folder: Relevant files for Take Home Assignment
+To access, please use the NJIT-assigned account.
