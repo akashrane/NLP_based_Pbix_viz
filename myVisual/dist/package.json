@@ -1,5 +1,5 @@
 {
-		"version": "1.0.0.0",
+		"version": "1.0.6.0",
 		"author": {"name":"Isha Dilip Jagtap","email":"isha@example.com"},
 		"resources": [
 			{
@@ -8,7 +8,7 @@
 				"file": "resources/myVisual616E5C70FA0A4AF897F3163BC7F4EA29.pbiviz.json"
 			}
 		],
-		"visual": {"name":"myVisual","displayName":"myVisual","guid":"myVisual616E5C70FA0A4AF897F3163BC7F4EA29","visualClassName":"Visual","version":"1.0.0.0","description":"Natural Language to Chart Power BI Custom Visual","supportUrl":"https://example.com/support","gitHubUrl":"https://example.com/github"},
+		"visual": {"name":"myVisual","displayName":"myVisual","guid":"myVisual616E5C70FA0A4AF897F3163BC7F4EA29","visualClassName":"Visual","version":"1.0.6.0","description":"Natural Language to Chart Power BI Custom Visual","supportUrl":"https://example.com/support","gitHubUrl":"https://example.com/github"},
 		"metadata": {
 			"pbivizjson": {
 				"resourceId": "rId0"

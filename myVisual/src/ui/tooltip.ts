@@ -56,15 +56,19 @@ export function createTooltip(container: HTMLElement): Tooltip {
     }
 
     function move(event: MouseEvent): void {
-        const rect = container.getBoundingClientRect();
-        let x = event.clientX - rect.left + 12;
-        let y = event.clientY - rect.top - 10;
+        const d3Obj = (window as any)['d3'];
+        const [mx, my] = d3Obj ? d3Obj.pointer(event, container) : [event.clientX - container.getBoundingClientRect().left, event.clientY - container.getBoundingClientRect().top];
+        
+        let x = mx + 12;
+        let y = my - 10;
+        
         if (x + tip.offsetWidth + 16 > container.clientWidth) {
-            x = event.clientX - rect.left - tip.offsetWidth - 12;
+            x = mx - tip.offsetWidth - 12;
         }
         if (y + tip.offsetHeight + 10 > container.clientHeight) {
-            y = event.clientY - rect.top - tip.offsetHeight - 10;
+            y = my - tip.offsetHeight - 10;
         }
+        
         tip.style.left = String(Math.max(0, x)) + "px";
         tip.style.top = String(Math.max(0, y)) + "px";
     }

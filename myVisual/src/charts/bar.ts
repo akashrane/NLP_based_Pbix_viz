@@ -13,15 +13,17 @@ export function renderBarChart(
 ) {
     while (container.firstChild) { container.removeChild(container.firstChild); }
 
-    const cat = dataView.categorical.categories?.find(c => c.source.queryName === xField?.queryName);
-    const msr = dataView.categorical.values?.find(v => v.source.queryName === yField?.queryName);
+    const cat = dataView.categorical.categories?.find(c => c.source.displayName === xField?.displayName);
+    const msr = dataView.categorical.values?.find(v => v.source.displayName === yField?.displayName);
 
     if (!cat?.values || !msr?.values) {
         const err = document.createElement("p");
+        err.style.color = "red";
+        err.style.padding = "10px";
         const missing: string[] = [];
-        if (!cat?.values) { missing.push("x-axis field \"" + (xField ? xField.displayName : "unknown") + "\" (expected a Category column)"); }
-        if (!msr?.values) { missing.push("y-axis field \"" + (yField ? yField.displayName : "unknown") + "\" (expected a Measure column)"); }
-        err.textContent = "Bar chart could not be drawn - " + missing.join("; ") + ". Make sure the right fields are dragged into the Category and Measure wells.";
+        if (!cat?.values) { missing.push("x-axis field \"" + (xField ? xField.displayName : "unknown") + "\""); }
+        if (!msr?.values) { missing.push("y-axis field \"" + (yField ? yField.displayName : "unknown") + "\""); }
+        err.textContent = "Bar chart could not be drawn - " + missing.join(" and ") + " not found in the visual's data wells.";
         container.appendChild(err);
         return;
     }
@@ -52,7 +54,7 @@ export function renderBarChart(
     const topData = data.slice(0, 20);
     const tt = createTooltip(container);
 
-    const margin = { top: 20, right: 20, bottom: 80, left: 60 };
+    const margin = { top: 50, right: 20, bottom: 80, left: 80 };
     const width = container.clientWidth - margin.left - margin.right;
     const height = container.clientHeight - margin.top - margin.bottom;
 
@@ -68,8 +70,13 @@ export function renderBarChart(
         .range([0, width])
         .padding(0.2);
 
+    let minY = Math.min(0, d3.min(topData, d => d.value) || 0); // Bar charts should always start at 0
+    let maxY = d3.max(topData, d => d.value) || 0;
+    const padding = (maxY - minY) * 0.1;
+    if (padding === 0) { maxY = 1; } else { maxY += padding; }
+
     const y = d3.scaleLinear()
-        .domain([0, d3.max(topData, d => d.value) || 0])
+        .domain([minY, maxY])
         .nice()
         .range([height, 0]);
 
@@ -80,7 +87,35 @@ export function renderBarChart(
         .attr("transform", "translate(-10,0)rotate(-45)")
         .style("text-anchor", "end");
 
+    // X-axis label
+    svg.append("text")
+        .attr("x", width / 2)
+        .attr("y", height + margin.bottom - 10)
+        .attr("text-anchor", "middle")
+        .style("font-size", "12px")
+        .text(xField.displayName);
+
     svg.append("g").call(d3.axisLeft(y));
+
+    // Y-axis label
+    svg.append("text")
+        .attr("transform", "rotate(-90)")
+        .attr("x", -height / 2)
+        .attr("y", -margin.left + 20)
+        .attr("text-anchor", "middle")
+        .style("font-size", "12px")
+        .text(aggLabel + " " + yField.displayName);
+
+    // Title / Description
+    if (intent && intent.description) {
+        svg.append("text")
+            .attr("x", width / 2)
+            .attr("y", -margin.top / 2)
+            .attr("text-anchor", "middle")
+            .style("font-size", "14px")
+            .style("font-weight", "bold")
+            .text(intent.description);
+    }
 
     svg.selectAll("rect")
         .data(topData)

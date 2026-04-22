@@ -11,4 +11,6 @@ export interface Intent {
     yField?: FieldMeta;
     valueField?: FieldMeta;
     aggHints?: string;
+    description?: string;
+    isLLM?: boolean;
 }

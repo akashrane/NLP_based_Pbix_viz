@@ -1,19 +1,22 @@
 import * as d3 from "d3";
-import { FieldMeta } from "../nlp/types";
+import { FieldMeta, Intent } from "../nlp/types";
 import powerbi from "powerbi-visuals-api";
 import { createTooltip, TooltipRow } from "../ui/tooltip";
 
-export function renderPieChart(container: HTMLElement, dataView: powerbi.DataView, xField: FieldMeta, yField: FieldMeta) {
+export function renderPieChart(container: HTMLElement, dataView: powerbi.DataView, xField: FieldMeta, yField: FieldMeta, intent?: Intent) {
     while (container.firstChild) { container.removeChild(container.firstChild); }
 
-    let cat = dataView.categorical.categories?.find(c => c.source.queryName === xField?.queryName);
-    let msr = dataView.categorical.values?.find(v => v.source.queryName === yField?.queryName);
-    if (!cat && dataView.categorical.categories) { cat = dataView.categorical.categories[0]; }
-    if (!msr && dataView.categorical.values) { msr = dataView.categorical.values[0]; }
+    let cat = dataView.categorical.categories?.find(c => c.source.displayName === xField?.displayName);
+    let msr = dataView.categorical.values?.find(v => v.source.displayName === yField?.displayName);
 
     if (!cat?.values || !msr?.values) {
         const err = document.createElement("p");
-        err.textContent = "Data missing for pie chart.";
+        err.style.color = "red";
+        err.style.padding = "10px";
+        const missing: string[] = [];
+        if (!cat?.values) { missing.push("x-axis field \"" + (xField ? xField.displayName : "unknown") + "\""); }
+        if (!msr?.values) { missing.push("y-axis field \"" + (yField ? yField.displayName : "unknown") + "\""); }
+        err.textContent = "Data missing for pie chart - " + missing.join(" and ") + " not found in the visual's data wells.";
         container.appendChild(err);
         return;
     }
@@ -33,14 +36,26 @@ export function renderPieChart(container: HTMLElement, dataView: powerbi.DataVie
     const margin = 20;
     const width = container.clientWidth;
     const height = container.clientHeight;
-    const radius = Math.min(width, height) / 2 - margin;
+    const radius = Math.min(width, height - 40) / 2 - margin;
 
-    const svg = d3.select(container)
+    const mainSvg = d3.select(container)
         .append("svg")
         .attr("width", width)
-        .attr("height", height)
-        .append("g")
-        .attr("transform", "translate(" + (width / 2) + "," + (height / 2) + ")");
+        .attr("height", height);
+
+    // Title / Description
+    if (intent && intent.description) {
+        mainSvg.append("text")
+            .attr("x", width / 2)
+            .attr("y", 20)
+            .attr("text-anchor", "middle")
+            .style("font-size", "14px")
+            .style("font-weight", "bold")
+            .text(intent.description);
+    }
+
+    const svg = mainSvg.append("g")
+        .attr("transform", "translate(" + (width / 2) + "," + (height / 2 + 10) + ")");
 
     const color = d3.scaleOrdinal<string>()
         .domain(Object.keys(dataMap))

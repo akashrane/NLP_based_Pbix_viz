@@ -99,13 +99,35 @@ export class Visual implements IVisual {
         // Gemini Fallback if enabled and intent is ambiguous/unknown/missing important fields
         const parserSettings = this.formattingSettings.parserCard;
         if (parserSettings.useLLM.value && parserSettings.apiKey.value) {
-            // Only fallback if rule parser completely failed or is missing fields
-            if (!intent || intent.chartType === 'unknown' || (!intent.xField && !intent.yField && !intent.valueField)) {
+            // Determine if the parsed intent is missing the specific fields it needs to render
+            const isMissingFields = intent && intent.chartType !== 'unknown' 
+                ? (intent.chartType === 'histogram' ? !intent.valueField : (!intent.xField || !intent.yField))
+                : true;
+
+            // Fallback if rule parser completely failed or is missing required fields
+            if (!intent || intent.chartType === 'unknown' || isMissingFields) {
                 this.chartContainer.textContent = 'Querying Gemini...';
                 const geminiIntent = await parseWithGemini(query, availableFields, parserSettings.apiKey.value);
                 if (geminiIntent && geminiIntent.chartType !== 'unknown') {
                     intent = geminiIntent;
                 }
+            }
+        }
+
+        // --- AUTO-SWAPPER ---
+        // If Gemini or the local parser accidentally reversed the fields (put a Measure in X and Category in Y), swap them.
+        // Also handle cases where they only specified one field but put it in the wrong slot.
+        if (intent && intent.chartType !== 'histogram') {
+            if (intent.xField?.category === 'measure' && intent.yField?.category === 'category') {
+                const temp = intent.xField;
+                intent.xField = intent.yField;
+                intent.yField = temp;
+            } else if (intent.xField?.category === 'measure' && !intent.yField) {
+                intent.yField = intent.xField;
+                intent.xField = undefined; // Let the forgiving fallback fill it
+            } else if (intent.yField?.category === 'category' && !intent.xField) {
+                intent.xField = intent.yField;
+                intent.yField = undefined; // Let the forgiving fallback fill it
             }
         }
 
@@ -116,12 +138,57 @@ export class Visual implements IVisual {
             return;
         }
 
-        const requiredFieldMissing = intent.chartType === 'histogram' ? !intent.valueField : (!intent.xField || !intent.yField);
-        if (requiredFieldMissing) {
-            this.errorPanel.show(`I don't see matching fields to draw a ${intent.chartType}. Fields in this visual right now: ${availableFields.map(f=>f.displayName).join(", ")}`);
-            this.chartContainer.style.display = "none";
-            this.explainChip.style.display = "none";
-            return;
+        // Validate that required fields are present - NO auto-filling from available candidates.
+        // If a field is missing, show a specific, actionable error message.
+        if (intent.chartType === 'histogram') {
+            if (!intent.valueField) {
+                this.errorPanel.show(`I understood you want a histogram, but I couldn't figure out which field to plot. Try: "show distribution of [field name]" — e.g., "show distribution of GPA".`);
+                this.chartContainer.style.display = "none";
+                this.explainChip.style.display = "none";
+                return;
+            }
+        } else {
+            const missingX = !intent.xField;
+            const missingY = !intent.yField;
+            const chartName = intent.chartType.charAt(0).toUpperCase() + intent.chartType.slice(1);
+            const exampleMap: Record<string, string> = {
+                bar: '"compare student count by expected grade"',
+                line: '"trend of student count by semester"',
+                pie: '"composition of students by course type"',
+            };
+            const example = exampleMap[intent.chartType] || `"show a ${intent.chartType} of [measure] by [category]"`;
+
+            if (missingX && missingY) {
+                this.errorPanel.show(`I understood you want a ${chartName} chart, but I couldn't identify which fields to use for the X-axis (category) and Y-axis (measure). Try: ${example}`);
+                this.chartContainer.style.display = "none";
+                this.explainChip.style.display = "none";
+                return;
+            } else if (missingX) {
+                this.errorPanel.show(`I understood you want a ${chartName} chart with "${intent.yField?.displayName}" on the Y-axis, but I couldn't find the category field for the X-axis. Try adding a category to your query — e.g., ${example}`);
+                this.chartContainer.style.display = "none";
+                this.explainChip.style.display = "none";
+                return;
+            } else if (missingY) {
+                this.errorPanel.show(`I understood you want a ${chartName} chart with "${intent.xField?.displayName}" on the X-axis, but I couldn't find the measure field for the Y-axis. Try adding a measure to your query — e.g., ${example}`);
+                this.chartContainer.style.display = "none";
+                this.explainChip.style.display = "none";
+                return;
+            }
+        }
+
+
+        if (!intent.description) {
+            if (intent.chartType === 'histogram') {
+                intent.description = `Histogram of ${intent.valueField?.displayName}`;
+            } else if (intent.chartType === 'pie' || intent.chartType === 'bar' || intent.chartType === 'line') {
+                intent.description = `${intent.chartType.charAt(0).toUpperCase() + intent.chartType.slice(1)} chart showing ${intent.yField?.displayName} by ${intent.xField?.displayName}`;
+            } else {
+                intent.description = `Chart based on query`;
+            }
+        }
+        
+        if (intent.isLLM) {
+            intent.description += " ✨ (Generated by AI)";
         }
 
         // Phase 5: Render Chart
@@ -139,11 +206,11 @@ export class Visual implements IVisual {
         try {
             this.chartContainer.textContent = "";
             if (intent.chartType === 'histogram') {
-                renderHistogram(this.chartContainer, this.lastDataView, intent.valueField as FieldMeta);
+                renderHistogram(this.chartContainer, this.lastDataView, intent.valueField as FieldMeta, intent);
             } else if (intent.chartType === 'line') {
-                renderLineChart(this.chartContainer, this.lastDataView, intent.xField as FieldMeta, intent.yField as FieldMeta);
+                renderLineChart(this.chartContainer, this.lastDataView, intent.xField as FieldMeta, intent.yField as FieldMeta, intent);
             } else if (intent.chartType === 'pie') {
-                renderPieChart(this.chartContainer, this.lastDataView, intent.xField as FieldMeta, intent.yField as FieldMeta);
+                renderPieChart(this.chartContainer, this.lastDataView, intent.xField as FieldMeta, intent.yField as FieldMeta, intent);
             } else {
                 renderBarChart(this.chartContainer, this.lastDataView, intent.xField as FieldMeta, intent.yField as FieldMeta, intent, this.themeColor);
             }

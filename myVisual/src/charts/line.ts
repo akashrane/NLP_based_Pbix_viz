@@ -1,20 +1,28 @@
 import * as d3 from "d3";
-import { FieldMeta } from "../nlp/types";
+import { FieldMeta, Intent } from "../nlp/types";
 import powerbi from "powerbi-visuals-api";
 import { createTooltip, TooltipRow } from "../ui/tooltip";
 
-export function renderLineChart(container: HTMLElement, dataView: powerbi.DataView, xField: FieldMeta, yField: FieldMeta) {
+export function renderLineChart(
+    container: HTMLElement, 
+    dataView: powerbi.DataView, 
+    xField: FieldMeta, 
+    yField: FieldMeta,
+    intent?: Intent
+) {
     while (container.firstChild) { container.removeChild(container.firstChild); }
 
-    const cat = dataView.categorical.categories?.find(c => c.source.queryName === xField?.queryName);
-    const msr = dataView.categorical.values?.find(v => v.source.queryName === yField?.queryName);
+    const cat = dataView.categorical.categories?.find(c => c.source.displayName === xField?.displayName);
+    const msr = dataView.categorical.values?.find(v => v.source.displayName === yField?.displayName);
 
     if (!cat?.values || !msr?.values) {
         const err = document.createElement("p");
+        err.style.color = "red";
+        err.style.padding = "10px";
         const missing: string[] = [];
-        if (!cat?.values) { missing.push("x-axis field \"" + (xField ? xField.displayName : "unknown") + "\" (expected a Category column)"); }
-        if (!msr?.values) { missing.push("y-axis field \"" + (yField ? yField.displayName : "unknown") + "\" (expected a Measure column)"); }
-        err.textContent = "Line chart could not be drawn - " + missing.join("; ") + ". Make sure the right fields are dragged into the Category and Measure wells.";
+        if (!cat?.values) { missing.push("x-axis field \"" + (xField ? xField.displayName : "unknown") + "\""); }
+        if (!msr?.values) { missing.push("y-axis field \"" + (yField ? yField.displayName : "unknown") + "\""); }
+        err.textContent = "Line chart could not be drawn - " + missing.join(" and ") + " not found in the visual's data wells.";
         container.appendChild(err);
         return;
     }
@@ -37,7 +45,7 @@ export function renderLineChart(container: HTMLElement, dataView: powerbi.DataVi
     data.sort((a, b) => a.key.localeCompare(b.key));
 
     const tt = createTooltip(container);
-    const margin = { top: 20, right: 20, bottom: 80, left: 60 };
+    const margin = { top: 50, right: 20, bottom: 80, left: 80 };
     const width = container.clientWidth - margin.left - margin.right;
     const height = container.clientHeight - margin.top - margin.bottom;
 
@@ -53,8 +61,13 @@ export function renderLineChart(container: HTMLElement, dataView: powerbi.DataVi
         .range([0, width])
         .padding(0.5);
 
+    let minY = d3.min(data, d => d.value) || 0;
+    let maxY = d3.max(data, d => d.value) || 0;
+    const padding = (maxY - minY) * 0.1;
+    if (padding === 0) { minY = 0; } else { minY = Math.max(0, minY - padding); maxY += padding; }
+
     const y = d3.scaleLinear()
-        .domain([0, d3.max(data, d => d.value) || 0])
+        .domain([minY, maxY])
         .nice()
         .range([height, 0]);
 
@@ -65,7 +78,36 @@ export function renderLineChart(container: HTMLElement, dataView: powerbi.DataVi
         .attr("transform", "translate(-10,0)rotate(-45)")
         .style("text-anchor", "end");
 
+    // X-axis label
+    svg.append("text")
+        .attr("x", width / 2)
+        .attr("y", height + margin.bottom - 10)
+        .attr("text-anchor", "middle")
+        .style("font-size", "12px")
+        .text(xField.displayName);
+
     svg.append("g").call(d3.axisLeft(y));
+
+    // Y-axis label
+    const aggLabel = (intent && intent.aggHints === "mean") ? "Mean" : "Average";
+    svg.append("text")
+        .attr("transform", "rotate(-90)")
+        .attr("x", -height / 2)
+        .attr("y", -margin.left + 20)
+        .attr("text-anchor", "middle")
+        .style("font-size", "12px")
+        .text(aggLabel + " " + yField.displayName);
+
+    // Title / Description
+    if (intent && intent.description) {
+        svg.append("text")
+            .attr("x", width / 2)
+            .attr("y", -margin.top / 2)
+            .attr("text-anchor", "middle")
+            .style("font-size", "14px")
+            .style("font-weight", "bold")
+            .text(intent.description);
+    }
 
     const line = d3.line<{ key: string; value: number }>()
         .x(d => x(d.key) || 0)

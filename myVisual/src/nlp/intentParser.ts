@@ -19,8 +19,8 @@ export function parseIntent(query: string, availableFields: FieldMeta[]): Intent
     } else if (lowerQuery.match(/\b(pie|pies|composition|share|shares|percentage|percentages|proportion|proportions|ratio|fraction)\b/)) {
         intent.chartType = 'pie';
     } else {
-        // Fallback to bar if ambiguous but fields suggest something
-        intent.chartType = 'bar';
+        // Leave as unknown so LLM fallback can trigger if enabled
+        intent.chartType = 'unknown';
     }
     
     // 2. Extract context for fields
@@ -64,14 +64,8 @@ export function parseIntent(query: string, availableFields: FieldMeta[]): Intent
     // Also skip for histogram, which uses valueField only — injecting a random
     // category/measure into xField/yField would pollute the explain-chip.
     const usedByKeyword = byIndex !== -1 && byIndex < tokens.length - 1;
-    if (intent.chartType !== 'histogram' && !usedByKeyword) {
-        if (!intent.xField) {
-            intent.xField = availableFields.find(f => f.category === 'category');
-        }
-        if (!intent.yField) {
-            intent.yField = availableFields.find(f => f.category === 'measure');
-        }
-    }
+    // Removed aggressive xField/yField auto-filling here so that missing fields
+    // properly trigger the LLM fallback or a helpful error message.
     if (!intent.valueField) {
         // BUG FIX: previously accepted any field type (measure OR category) as the
         // histogram value, so a text column like "Department" could be selected —
